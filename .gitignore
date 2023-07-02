@@ -1,0 +1,9 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+not_firstversion/
+*.sh
+Constructed_model/*
+log*
