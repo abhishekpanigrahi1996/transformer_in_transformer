@@ -141,7 +141,7 @@ class ConstructionArguments:
         
     
     n_layers_pergpu: Optional[int] = field(
-        default=-1, metadata={"help": "Number of layers simulated per gpu"}
+        default=100000, metadata={"help": "Number of layers simulated per gpu"}
     )
         
     reuse_forward_blocks: Optional[bool] = field(
