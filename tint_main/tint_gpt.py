@@ -288,12 +288,11 @@ class GPT2_Forward(nn.Module):
             hidden_states = out_hidden_states
             
             if initial_forward and len(self.trainable_biases) > 0:
-                #hidden_states[:, :self.config.num_prefixes] += ( self.trainable_biases[counter] - hidden_states[:, :self.config.num_prefixes] )
+                
                 hidden_states = torch.cat( [ self.trainable_biases[counter].unsqueeze(0).expand(hidden_states[:, :self.config.num_prefixes].shape), hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
             else:
                 hidden_states = torch.cat( [ past_memory_prefixes[counter], hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
-                #hidden_states[:, :self.config.num_prefixes] += ( past_memory_prefixes[counter] - hidden_states[:, :self.config.num_prefixes] )
-            
+                
             
             counter += 1
             #store the weights for the future backward passes
@@ -321,12 +320,7 @@ class GPT2_Forward(nn.Module):
                 memory_prefixes += [ value_wts ]
                 counter += 1    
                 
-                
-                #memory_activations += [ out_hidden_states[:, self.config.num_prefixes:, mem_loc:] ]
-                #push the first din coordinates of input into memory
-                #memory_activations += [ hidden_states[:, self.config.num_prefixes:, :self.model_config.hidden_size] ]
-                
-                
+               
        
                 out_hidden_states = module (hidden_states, \
                                             position_embeddings, \
@@ -343,9 +337,7 @@ class GPT2_Forward(nn.Module):
             memory_activations += [ out_hidden_states[:, self.config.num_prefixes:, mem_loc:] ]
             memory_activation_counter += 1
             
-            #print (module)
             
-        #print ("---------mlp----------")       
             
         hidden_states = out_hidden_states + residual
                
@@ -353,7 +345,6 @@ class GPT2_Forward(nn.Module):
         out_hidden_states = hidden_states
         module_counter = 0
         
-        #print (self.mlp_modules)
         for module in self.mlp_modules:
             
             
@@ -365,19 +356,15 @@ class GPT2_Forward(nn.Module):
             else:
                 hidden_states = out_hidden_states
                 
-            #if module_counter == 1:
-            #    chunk_hidden_states = [out_hidden_states, out_hidden_states, out_hidden_states, out_hidden_states]
             
-            #if module_counter >= 1:
-                #for k in range(self.num_mlp_modules):
                 
             if initial_forward and len(self.trainable_biases) > 0:
-                #hidden_states[:, :self.config.num_prefixes] += ( self.trainable_biases[counter] - hidden_states[:, :self.config.num_prefixes] )
+                
                 hidden_states = torch.cat( [ self.trainable_biases[counter].unsqueeze(0).expand(hidden_states[:, :self.config.num_prefixes].shape), hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
-                #hidden_states = torch.cat( [ self.trainable_biases[counter], hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
+                
             else:
                 hidden_states = torch.cat( [ past_memory_prefixes[counter], hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
-                #hidden_states[:, :self.config.num_prefixes] += ( past_memory_prefixes[counter] - hidden_states[:, :self.config.num_prefixes] )
+                
 
             counter += 1
             #store the weights for the future backward passes
@@ -397,8 +384,7 @@ class GPT2_Forward(nn.Module):
             elif module_counter > 4 and (module_counter-4) % 3 == 0:
                 final_state = final_state + out_hidden_states
             
-            #print (module)
-        
+            
         
         hidden_states = final_state + residual
         return hidden_states, memory_prefixes, memory_activations
@@ -447,24 +433,16 @@ class gpt2block_backward(nn.Module):
         self.project_MLP = project_MLP
         self.config = config
         
-        #self.update_memory = []
-        #self.store_memory = []
+        
         self.trainable_biases = []
         
         #Modules for forward through mlp module
         inner_dim=model_config.n_inner if model_config.n_inner is not None else 4 * model_config.hidden_size
-        #if self.project_MLP: mlp_innerdim = model_config.hidden_size
-        #else: mlp_innerdim = inner_dim
+        
         mlp_innerdim = model_config.hidden_size
         self.num_mlp_modules = inner_dim // mlp_innerdim if not project_MLP else 1
         
-        #output_backward = LinearBackward(config, \
-        #                                 din=mlp_innerdim, \
-        #                                 dout=model_config.hidden_size, \
-        #                                 use_softmax=False, \
-        #                                 memory_index=self.linear_memory_index, \
-        #                                )
-        #self.add_module('mlp_projection_back', output_backward)
+        
         
         output_descent  = Linear_Descent_Backward(config, \
                                                   din=mlp_innerdim, \
@@ -497,14 +475,7 @@ class gpt2block_backward(nn.Module):
                                                       )
         self.add_module('mlp_intermediate_back_descent', intermediate_descent)
         
-        #intermediate_descent = LinearDescent(config, \
-        #                                     din=model_config.hidden_size, \
-        #                                     dout=mlp_innerdim, \
-        #                                     use_softmax=False, \
-        #                                     memory_index=self.linear_memory_index,\
-        #                                     debug_zero=False
-        #                                    )
-        #self.add_module('mlp_intermediate_descent', intermediate_descent)
+        
         
         ln_2_backward = LayerNormDescent_Backward(config, \
                                                   din=model_config.hidden_size, \
@@ -513,41 +484,22 @@ class gpt2block_backward(nn.Module):
                                                  )
         self.add_module('mlp_ln_back', ln_2_backward)
         
-        #ln_2_descent  = LayerNormDescent(config, \
-        #                                 din=model_config.hidden_size, \
-        #                                 use_softmax=False, \
-        #                                 memory_index=self.ln_memory_index, \
-        #                                 debug_zero=True
-        #                                )
-        #self.add_module('mlp_ln_descent', ln_2_descent)
+        
         
         self.mlp_modules   = []
-        #self.update_memory = []
         self.skip_memory   = []
-        #self.store_memory  = []
 
             
         for _ in range(self.num_mlp_modules):
             self.mlp_modules   += [output_descent, activation_backward, intermediate_descent]
-            #self.update_memory += [True, True, True]
             self.skip_memory   += [False, False, False]
-            #self.store_memory  += [True, True, True]
             
         self.num_mlp_repetitive = 3
         self.ln_mlp_module_index = len(self.mlp_modules)
         self.mlp_modules   += [ln_2_backward]
-        #self.update_memory += [True]
         self.skip_memory   += [False]
-        #self.store_memory  += [True]
         
-        #Modules for forward through attention module
-        #attnt_proj_backward = LinearBackward(config, \
-        #                                     din=model_config.hidden_size, \
-        #                                     dout=model_config.hidden_size, \
-        #                                     use_softmax=False, \
-        #                                     memory_index=self.linear_memory_index, \
-        #                                    )
-        #self.add_module('attention_projection_back', attnt_proj_backward)
+        
         
         attnt_proj_descent = Linear_Descent_Backward(config, \
                                                      din=model_config.hidden_size, \
@@ -558,13 +510,7 @@ class gpt2block_backward(nn.Module):
                                                     )
         self.add_module('attention_projection_back_descent', attnt_proj_descent)
         
-        #attnt_backward = LightAttentionBackward(config, \
-        #                                        din=model_config.hidden_size, \
-        #                                        num_attnt_heads=model_config.num_attention_heads, \
-        #                                        memory_index=self.attn_memory_index, \
-        #                                        use_softmax=False, \
-        #                                       )
-        #self.add_module('attention_back', attnt_backward)
+        
         
         attnt_descent  = AttentionBackward_Descent(config, \
                                                     din=model_config.hidden_size, \
@@ -582,21 +528,11 @@ class gpt2block_backward(nn.Module):
                                                  )
         self.add_module('attention_ln_back', ln_1_backward)
         
-        #ln_1_descent  = LayerNormDescent(config, \
-        #                                 din=model_config.hidden_size, \
-        #                                 use_softmax=False, \
-        #                                 memory_index=self.ln_memory_index, \
-        #                                 debug_zero=True
-        #                                )
-        #self.add_module('attention_ln_descent', ln_1_descent)
         
         
         self.attnt_modules= [attnt_proj_descent, attnt_descent, ln_1_backward]
-        #self.update_memory += [True, True, True]
         self.skip_memory   += [False, True, False]
-        #self.store_memory  += [True, True, True]
-        #self.additional_act = [False, True, False]
-    
+        
         self.trainable_biases = nn.ParameterList(self.trainable_biases)
     
     def forward(self, \
@@ -627,38 +563,25 @@ class gpt2block_backward(nn.Module):
                 hidden_states = out_hidden_states
             
             
-            #if self.update_memory[memory_counter]:
-            #first copy the weights onto the prefix tokens 
-            #old_memory=memory_prefixes[weight_counter]
-            #hidden_states[:, :self.config.num_prefixes] += ( memory_prefixes[weight_counter] - hidden_states[:, :self.config.num_prefixes] ) <---- in-place operation
+            
 
             hidden_states = torch.cat([ memory_prefixes[weight_counter], hidden_states[:, self.config.num_prefixes:] ], axis=1)
             
-            #if self.additional_act[memory_counter]:
-            #    additional_act = memory_activations[activation_counter]
-            #    activation_counter -= 1
-            #else:
-            #    additional_act = None
+            
             #further copy the memory on activations 
             mem_loc=self.memory_locations[activation_counter]
 
             hidden_states[:, self.config.num_prefixes:, mem_loc:] += ( memory_activations[activation_counter] - hidden_states[:, self.config.num_prefixes:, mem_loc:] )
-            #print (memory_activations[activation_counter][0])
             
 
             activation_counter -= 1
 
             weight_counter -= 1
             
-            #print ("In", torch.amax(torch.absolute(hidden_states[:, self.config.num_prefixes:, :768])))
             out_hidden_states = module (hidden_states, position_embeddings, attention_mask)
-            #print ("Out", torch.amax(torch.absolute(out_hidden_states[:, self.config.num_prefixes:, :768])))
             
-            
-            #print ( torch.max ( torch.absolute(out_hidden_states[:, :self.config.num_prefixes] - hidden_states[:,:self.config.num_prefixes] ) )  )
-            
+           
             #push the new weights into memory
-            #if self.store_memory[memory_counter]:
             new_memory=out_hidden_states[:, :self.config.num_prefixes]
             new_memory_prefixes += [new_memory]
 
@@ -682,10 +605,7 @@ class gpt2block_backward(nn.Module):
         
         for module in self.attnt_modules:
             hidden_states = out_hidden_states
-            #if self.update_memory[memory_counter]:
-            #first copy the weights onto the prefix tokens
-            #old_memory=memory_prefixes[weight_counter]
-            #hidden_states[:, :self.config.num_prefixes] += ( memory_prefixes[weight_counter] - hidden_states[:, :self.config.num_prefixes] ) <---- in-place operation
+            
             hidden_states = torch.cat([ memory_prefixes[weight_counter], hidden_states[:, self.config.num_prefixes:] ], axis=1)
             #further copy the memory on activations 
             mem_loc=self.memory_locations[activation_counter]
@@ -708,10 +628,8 @@ class gpt2block_backward(nn.Module):
                 weight_counter -= 1
 
             out_hidden_states = module (hidden_states, position_embeddings, attention_mask, icl_mask=icl_mask) 
-            #print (torch.amax(torch.absolute(out_hidden_states[:, self.config.num_prefixes:, :768])))
             
             #push the new weights into memory
-            #if self.store_memory[memory_counter]:
             new_memory=out_hidden_states[:, :self.config.num_prefixes]
             new_memory_prefixes += [new_memory]
             if stack_QK is not None:
@@ -719,7 +637,6 @@ class gpt2block_backward(nn.Module):
                 stack_QK = None
 
             memory_counter += 1
-        #print ("-----attention----")    
    
         hidden_states = out_hidden_states + residual
         
@@ -755,8 +672,8 @@ class finalgradient_compute(nn.Module):
         if  add_biases_prefixes: self.trainable_biases = []        
         self.reqd_biases = []
         self.trainable_biases = []
-        ############## -------------------------- Attention module -------------------------- ##############
-        #Modules for forward through attention module
+        ############## -------------------------- Layernorm module -------------------------- ##############
+        #Modules for forward through layernorm module
         ln_f = LayerNormForward(config, \
                                 din=model_config.hidden_size, \
                                 use_softmax=False, \
@@ -769,7 +686,6 @@ class finalgradient_compute(nn.Module):
         
         self.forward_modules = [ln_f]
         
-        #config, din, use_softmax, debug_zero=False, retain_nablay=False, projection_matrix=None, memory_index=-1
         ln_f_backward = LayerNormDescent_Backward(config, \
                                                   din=model_config.hidden_size, \
                                                   use_softmax=False, \
@@ -777,13 +693,7 @@ class finalgradient_compute(nn.Module):
                                                   debug_zero=False, \
                                                  )
         self.add_module('ln_back', ln_f_backward)
-        #ln_f_descent  = LayerNormDescent(config, \
-        #                                 model_config.hidden_size, \
-        #                                 use_softmax=False, \
-        #                                 memory_index=self.ln_memory_index, \
-        #                                 debug_zero=True
-        #                                )
-        #self.add_module('ln_descent', ln_f_descent)
+        
         self.backward_modules = [ln_f_backward,]
 
         self.trainable_biases = nn.ParameterList(self.trainable_biases)
@@ -824,12 +734,12 @@ class finalgradient_compute(nn.Module):
             
            
             if initial_forward and len(self.trainable_biases) > 0:
-                #hidden_states[:, :self.config.num_prefixes] += ( self.trainable_biases[counter] - hidden_states[:, :self.config.num_prefixes] )
+                
                 hidden_states = torch.cat( [ self.trainable_biases[counter].unsqueeze(0).expand(hidden_states[:, :self.config.num_prefixes].shape), hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
-                #hidden_states = torch.cat( [ self.trainable_biases[counter], hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
+                
             else:
                 hidden_states = torch.cat( [ past_memory_prefixes[counter], hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
-                #hidden_states[:, :self.config.num_prefixes] += ( past_memory_prefixes[counter] - hidden_states[:, :self.config.num_prefixes] )
+                
                 
             counter += 1
             #store the weights for the future backward passes
@@ -854,12 +764,9 @@ class finalgradient_compute(nn.Module):
 
         din = desd_output.shape[-1]
         num_prefixes=self.config.num_prefixes
-        #hidden_states[:, num_prefixes:, :din] -= hidden_states[:, num_prefixes:, :din] 
         hidden_states[:, num_prefixes:, :din] -= ( desd_output + hidden_states[:, num_prefixes:, :din]   )
         
-        #print (torch.max(desd_output).item() )
-        #print (hidden_states[:, 192, :din])
-        #exit(0)
+        
 
         return hidden_states
 
@@ -877,10 +784,7 @@ class finalgradient_compute(nn.Module):
         new_memory_prefixes = []
         
         for module in self.backward_modules:
-            #if self.update_memory[memory_counter]:
-            #first copy the weights onto the prefix tokens
-            #hidden_states[:, :self.config.num_prefixes] += ( memory_prefixes[counter] - hidden_states[:, :self.config.num_prefixes] ) <---- in-place operation
-            #print (memory_prefixes[counter].shape)
+            
             hidden_states = torch.cat( [ memory_prefixes[counter], hidden_states[:, self.config.num_prefixes:] ], axis=1 )
             #further copy the memory on activations 
             mem_loc = self.ln_memory_index
@@ -889,7 +793,6 @@ class finalgradient_compute(nn.Module):
             
             hidden_states = module (hidden_states, position_embeddings, attention_mask)
             #push the new weights into memory
-            #if self.store_memory[memory_counter]: 
             new_memory_prefixes += [hidden_states[:, :self.config.num_prefixes]]
             memory_counter += 1
         
@@ -956,13 +859,11 @@ class TinT_gpt(nn.Module):
         #first set of forward modules
         self.all_modules = []
         for layer in tqdm(range(self.n_layers), desc="Building initial Forward simulation modules"):
-            #per_oper_gpu = (self.config.n_gpus // 3)
             
             if self.config.device == 'cuda':
                 device = 'cuda:'+str( layer // self.config.n_layers_pergpu )
             else:
                 device = 'cpu'
-            #print (device, self.n_layers // per_oper_gpu, layer % ( self.n_layers // per_oper_gpu ) )
             module = GPT2_Forward(config, \
                                        model_config, \
                                        block=model_dict['transformer']['h'][str(layer)], \
@@ -1008,7 +909,6 @@ class TinT_gpt(nn.Module):
                     module = self.all_modules[ layer + self.n_back_layers ]
                     
                 self.all_modules += [module.to(device)]
-                #print (device)
 
             #final forward pass
             for layer in tqdm(range(self.n_layers-self.n_back_layers, self.n_layers), desc="Building final Forward simulation modules for iteration "+str(for_back_iter + 1)):
@@ -1034,7 +934,6 @@ class TinT_gpt(nn.Module):
                 else:
                     module = self.all_modules[ layer ]
                 self.all_modules += [module.to(device)]
-                #print (device)
     
            
     def loss_prediction(self, \
@@ -1101,7 +1000,6 @@ class TinT_gpt(nn.Module):
         position_embeddings[:, :self.config.num_prefixes, self.config.seq_length:] = torch.eye(self.config.num_prefixes)
         
         
-        #print ( input_ids.device, next(self.wte.parameters()).device )
         input_embeds = self.wte(input_ids)
         position_embeds = self.wpe(position_ids)
         original_hidden_states = input_embeds + position_embeds
@@ -1110,21 +1008,16 @@ class TinT_gpt(nn.Module):
         #desd_output is target for computing gradient of the loss function!
         desd_output = torch.zeros_like(input_embeds)
         desd_output[:, :-1] += (input_embeds[:, 1:])
-        #desd_output = desd_output * bidirection_mask.unsqueeze(dim=-1).to(device) 
 
         
         hidden_states = torch.zeros((original_hidden_states.shape[0], total_seq_length, self.config.hidden_size)).to(device)
         hidden_states[:, self.config.num_prefixes:, :self.model_config.hidden_size] += original_hidden_states
         
         
-        #return hidden_states
         
-        #first forward pass
-        #print (hidden_states[0, 192])
         memory_prefix_stack = []
         memory_activations_stack = []
         for layer in range(self.n_layers):
-        #tqdm(range(self.n_layers), desc="Initial forward pass"):
             
             if layer == self.n_layers - self.n_back_layers:
                 continued_forward_state=hidden_states
@@ -1178,7 +1071,6 @@ class TinT_gpt(nn.Module):
             
             for for_back_iter in range(self.n_forward_backward):
                 #compute loss gradient
-                #device=next(self.gradient_module.parameters()).device
                 
                 
                 device=next(self.gradient_module.parameters()).device
@@ -1195,15 +1087,13 @@ class TinT_gpt(nn.Module):
                     gradient = ( desd_output - torch.mean(self.lm_head.weight, axis=0)[None, None, :].to( desd_output.device ) ).to(device)
                 
                 #mask out tokens in the sequence that you don't to compute loss on
-                #print (gradient_mask)
                 gradient[:, :-1] *= bidirection_mask[:, 1:].unsqueeze(dim=-1).to(device) 
                 if gradient_mask is not None:
                     gradient[:, :-1] *= gradient_mask[:, 1:].unsqueeze(-1)
                 hidden_states = self.gradient_module.lossgradient( hidden_states.to(device), gradient ) 
 
                 
-                #device=next(self.gradient_module.parameters()).device 
-                #hidden_states = hidden_states.to(device)
+                
                 #Backward pass
                 hidden_states, \
                 lnf_memory_prefixes = self.gradient_module.backward(hidden_states=hidden_states.to(device), \
@@ -1212,21 +1102,14 @@ class TinT_gpt(nn.Module):
                                                                   memory_activations=[p.to(device) for p in gradient_act], \
                                                                   memory_prefixes=[p.to(device) for p in gradient_prefix], \
                                                                  )
-                #print (lnf_memory_prefixes[0][:, 0] - gradient_prefix[0][:, 0])
                 
-                #device='cuda:'+str(1 % self.config.n_gpus) 
-                #hidden_states = hidden_states.to(device)
                 module_begin = for_back_iter * (2 * self.n_back_layers) + self.n_layers
                 for layer in range(self.n_layers-1, self.n_layers-self.n_back_layers-1, -1):
-                #tqdm(range(self.n_layers-1, self.n_layers-self.n_back_layers-1, -1), \
-                #                  desc="Backward and descent, Iteration " +str(for_back_iter+1)):
-                    
-                    #stack_layer=2*self.n_layers - 1 - layer
+                
                     
                     module_index = module_begin + layer - (self.n_layers-self.n_back_layers)
                     device=next(self.all_modules[module_index].parameters()).device 
                     
-                    #stack_layer = for_back_iter * (2 * self.n_back_layers) + self.n_layers - 1 - layer
                     hidden_states, \
                     memory_prefixes = self.all_modules[module_index].forward(hidden_states=hidden_states.to(device),\
                                                                            position_embeddings=position_embeddings.to(device),\
@@ -1235,22 +1118,15 @@ class TinT_gpt(nn.Module):
                                                                            memory_prefixes=[p.to(device) for p in memory_prefix_stack[layer]], \
                                                                            icl_mask=icl_mask,\
                                                                           )
-                    #print (  [torch.amax( torch.abs( memory_prefix_stack[layer][i] - memory_prefixes[i] ) )  for i in range(len(memory_prefixes))] )
-                    #exit(0)
+                    
                     memory_prefix_stack[layer] = memory_prefixes
 
                 #Final forward pass
-                #if test_entire_model:
                 module_begin  = module_begin + self.n_back_layers
                 hidden_states = continued_forward_state
                 #hidden_states = hidden_states.to( 'cuda:'+str(2 % self.config.n_gpus) )
                 
                 for layer in range(self.n_layers-self.n_back_layers, self.n_layers):
-                    #tqdm(range(self.n_layers-self.n_back_layers, self.n_layers), \
-                    #     desc="Forward pass, Iteration " +str(for_back_iter+1)):
-                    
-                    #stack_layer=layer - 2*self.n_layers
-                    #device=next(self.all_modules[module_index].parameters()).device 
                     
                     module_index = module_begin + layer - (self.n_layers-self.n_back_layers)
                     device=next(self.all_modules[module_index].parameters()).device 
@@ -1263,14 +1139,9 @@ class TinT_gpt(nn.Module):
                                                                                 initial_forward=False, \
                                                                                 icl_mask=icl_mask,\
                                                                                )
-                    #memory_prefix_stack[layer]       = memory_prefixes
                     memory_activations_stack[layer] = memory_activations
                     
-                #print ( max([ torch.max( gradient_prefix[0][:, i] - lnf_memory_prefixes[0][:, i] ).item() for i in range(self.config.num_prefixes) ]))  
-                #exit(0)
-                
-                #print (hidden_states[0, 192])
-                #print ('******', len(lnf_memory_prefixes), '******')
+
                 device=next(self.gradient_module.parameters()).device 
                 hidden_states, \
                 gradient_prefix, \

@@ -135,13 +135,12 @@ class optblock_forward(nn.Module):
             mlp_proj_outer, \
             mlp_proj_outer_wt = pickle.load(open(self.config.projection_paths + '/projection_'+str(layer_id)+'.pkl', 'rb'))
             
-            #wt = block['mlp']['c_fc'].weight.T.detach().cpu().numpy()
+            
             inner_projection_matrix_wt = mlp_proj_inner_wt
             inner_projection_matrix = mlp_proj_inner
             
             outer_projection_matrix_wt  = mlp_proj_outer_wt
             outer_projection_matrix = mlp_proj_outer
-            #,  _, _ = np.linalg.svd( wt, full_matrices=False, compute_uv=True )
             
             
             self.inner_projection_matrix_wts += [inner_projection_matrix_wt]
@@ -150,8 +149,7 @@ class optblock_forward(nn.Module):
             self.outer_projection_matrix_wts += [outer_projection_matrix_wt]
             self.outer_projection_matrixes += [outer_projection_matrix]
         
-            #wt = block['mlp']['c_proj'].weight.T.detach().cpu().numpy()
-            #_,  _, self.outer_projection_matrix = np.linalg.svd( wt, full_matrices=False, compute_uv=True )
+
             hid_size = model_config.hidden_size
             self.num_mlp_modules = 1
         else:
@@ -165,16 +163,10 @@ class optblock_forward(nn.Module):
                 self.outer_projection_matrix_wts += [projection_matrix]
                 self.outer_projection_matrixes   += [None]
                 
-            #self.inner_projection_matrix_wt  = None
-            #self.inner_projection_matrix = None
-            
-            #self.outer_projection_matrix_wt  = None
-            #self.outer_projection_matrix = None
-            #inner_projection_matrix = None
+          
             hid_size = model_config.hidden_size
         
         
-        #for k in range(self.num_mlp_modules):
         intermediate_layer = LinearForward(config, \
                                            din=model_config.hidden_size, \
                                            dout=hid_size, \
@@ -183,12 +175,7 @@ class optblock_forward(nn.Module):
                                            projection_matrix=self.inner_projection_matrixes[0], \
                                           )
         self.add_module('intermediate_mlp', intermediate_layer)
-        #self.memory_locations += [self.linear_memory_index]
-        #if  add_biases_prefixes: 
-            
 
-
-        #for k in range(self.num_mlp_modules):
         act_din = inner_dim if self.project_MLP else hid_size
         activation_layer = ActivationForward(config, \
                                              din=act_din, \
@@ -196,9 +183,6 @@ class optblock_forward(nn.Module):
                                              projection_matrix=self.outer_projection_matrixes[0], \
                                             )
         self.add_module('activation_mlp', activation_layer)
-        #self.memory_locations += [self.act_memory_index]
-        #if  add_biases_prefixes: 
-            
 
 
         output_layer = LinearForward(config, 
@@ -208,12 +192,10 @@ class optblock_forward(nn.Module):
                                      memory_index=self.linear_memory_index,
                                     ) 
         self.add_module('mlp_projection', output_layer)
-        #self.memory_locations += [self.linear_memory_index]
 
         if  add_biases_prefixes: 
             for k in range(self.num_mlp_modules):
                 wt_projection = self.inner_projection_matrix_wts[k]
-                #self.inner_projection_matrix.T if self.inner_projection_matrix is not None else None
                 self.add_biases([ block['fc1'] ], projection=wt_projection)      
                 
                 self.add_biases(all_zeros=True)  
@@ -228,7 +210,7 @@ class optblock_forward(nn.Module):
             
         self.trainable_biases = nn.ParameterList(self.trainable_biases)
     #This function adds weights of the original model as biases, 
-    #that can later be added to the blank tokens.
+    #that can later be added to the prefix tokens.
     def add_biases(self, \
                    tensors=[], \
                    diagonal=False, \
@@ -268,7 +250,7 @@ class optblock_forward(nn.Module):
                 w = projection_tensor @ w
                 b = projection_tensor @ b
             
-        num_wts_per_blank=w.shape[0] // self.config.num_prefixes 
+        num_wts_per_prefix=w.shape[0] // self.config.num_prefixes 
         if not diagonal:
             din = w.shape[1]
         else:
@@ -278,9 +260,9 @@ class optblock_forward(nn.Module):
         with torch.no_grad():
             if diagonal: reshaped_w = torch.diag(w)
             else: reshaped_w = w
-            reshaped_w = reshaped_w.reshape(self.config.num_prefixes, num_wts_per_blank * din)
-            biases[: , : num_wts_per_blank * din ] = reshaped_w
-            biases[: , num_wts_per_blank * din : num_wts_per_blank * din + din ] = b        
+            reshaped_w = reshaped_w.reshape(self.config.num_prefixes, num_wts_per_prefix * din)
+            biases[: , : num_wts_per_prefix * din ] = reshaped_w
+            biases[: , num_wts_per_prefix * din : num_wts_per_prefix * din + din ] = b        
         self.trainable_biases += [biases]
         
         #if separate_QK:
@@ -289,15 +271,15 @@ class optblock_forward(nn.Module):
             w = K
             b = K_b
 
-            num_wts_per_blank=w.shape[0] // self.config.num_prefixes 
+            num_wts_per_prefix=w.shape[0] // self.config.num_prefixes 
             din = w.shape[1]
 
             with torch.no_grad():
                 if diagonal: reshaped_w = torch.diag(w)
                 else: reshaped_w = w
-                reshaped_w = reshaped_w.reshape(self.config.num_prefixes, num_wts_per_blank * din)
-                new_biases[: , : num_wts_per_blank * din ] = reshaped_w
-                new_biases[: , num_wts_per_blank * din : num_wts_per_blank * din + din ] = b        
+                reshaped_w = reshaped_w.reshape(self.config.num_prefixes, num_wts_per_prefix * din)
+                new_biases[: , : num_wts_per_prefix * din ] = reshaped_w
+                new_biases[: , num_wts_per_prefix * din : num_wts_per_prefix * din + din ] = b        
             self.trainable_biases += [new_biases]
 
         if attention:
@@ -305,15 +287,15 @@ class optblock_forward(nn.Module):
             w = V
             b = V_b
 
-            num_wts_per_blank=w.shape[0] // self.config.num_prefixes 
+            num_wts_per_prefix=w.shape[0] // self.config.num_prefixes 
             din = w.shape[1]
 
             with torch.no_grad():
                 if diagonal: reshaped_w = torch.diag(w)
                 else: reshaped_w = w
-                reshaped_w = reshaped_w.reshape(self.config.num_prefixes, num_wts_per_blank * din)
-                new_biases[: , : num_wts_per_blank * din ] = reshaped_w
-                new_biases[: , num_wts_per_blank * din : num_wts_per_blank * din + din ] = b        
+                reshaped_w = reshaped_w.reshape(self.config.num_prefixes, num_wts_per_prefix * din)
+                new_biases[: , : num_wts_per_prefix * din ] = reshaped_w
+                new_biases[: , num_wts_per_prefix * din : num_wts_per_prefix * din + din ] = b        
             self.trainable_biases += [new_biases]
 
         
@@ -345,13 +327,11 @@ class optblock_forward(nn.Module):
             hidden_states = out_hidden_states
             
             if initial_forward and len(self.trainable_biases) > 0:
-                #hidden_states[:, :self.config.num_prefixes] += ( self.trainable_biases[counter] - hidden_states[:, :self.config.num_prefixes] )
+                
                 hidden_states = torch.cat( [ self.trainable_biases[counter].unsqueeze(0).expand(hidden_states[:, :self.config.num_prefixes].shape), hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
             else:
                 hidden_states = torch.cat( [ past_memory_prefixes[counter], hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
-                #hidden_states[:, :self.config.num_prefixes] += ( past_memory_prefixes[counter] - hidden_states[:, :self.config.num_prefixes] )
-            
-            
+                
             counter += 1
             #store the weights for the future backward passes
             memory_prefixes += [hidden_states[:, :self.config.num_prefixes]]
@@ -379,10 +359,7 @@ class optblock_forward(nn.Module):
                 counter += 1    
                 
                 
-                #memory_activations += [ out_hidden_states[:, self.config.num_prefixes:, mem_loc:] ]
-                #push the first din coordinates of input into memory
-                #memory_activations += [ hidden_states[:, self.config.num_prefixes:, :self.model_config.hidden_size] ]
-                
+               
                 out_hidden_states = module (hidden_states, \
                                             position_embeddings, \
                                             key_weights=key_wts, \
@@ -398,9 +375,7 @@ class optblock_forward(nn.Module):
             memory_activations += [ out_hidden_states[:, self.config.num_prefixes:, mem_loc:] ]
             memory_activation_counter += 1
             
-            #print (module)
-            
-        #print ("---------mlp----------")       
+             
             
         hidden_states = out_hidden_states + residual
                
@@ -408,7 +383,6 @@ class optblock_forward(nn.Module):
         out_hidden_states = hidden_states
         module_counter = 0
         
-        #print (self.mlp_modules)
         for module in self.mlp_modules:
             
             
@@ -419,20 +393,15 @@ class optblock_forward(nn.Module):
                 hidden_states = chunk_hidden_states
             else:
                 hidden_states = out_hidden_states
-                
-            #if module_counter == 1:
-            #    chunk_hidden_states = [out_hidden_states, out_hidden_states, out_hidden_states, out_hidden_states]
-            
-            #if module_counter >= 1:
-                #for k in range(self.num_mlp_modules):
+           
                 
             if initial_forward and len(self.trainable_biases) > 0:
-                #hidden_states[:, :self.config.num_prefixes] += ( self.trainable_biases[counter] - hidden_states[:, :self.config.num_prefixes] )
+                
                 hidden_states = torch.cat( [ self.trainable_biases[counter].unsqueeze(0).expand(hidden_states[:, :self.config.num_prefixes].shape), hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
-                #hidden_states = torch.cat( [ self.trainable_biases[counter], hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
+                
             else:
                 hidden_states = torch.cat( [ past_memory_prefixes[counter], hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
-                #hidden_states[:, :self.config.num_prefixes] += ( past_memory_prefixes[counter] - hidden_states[:, :self.config.num_prefixes] )
+                
 
             counter += 1
             #store the weights for the future backward passes
@@ -452,7 +421,6 @@ class optblock_forward(nn.Module):
             elif module_counter > 4 and (module_counter-4) % 3 == 0:
                 final_state = final_state + out_hidden_states
             
-            #print (module)
         
         
         hidden_states = final_state + residual
@@ -501,25 +469,16 @@ class optblock_backward(nn.Module):
         self.memory_locations = memory_locations
         self.project_MLP = project_MLP
         self.config = config
-        
-        #self.update_memory = []
-        #self.store_memory = []
+
         self.trainable_biases = []
         
-        #Modules for forward through mlp module
+        #Modules for backward and descent through mlp module
         inner_dim=model_config.ffn_dim if model_config.ffn_dim is not None else 4 * model_config.hidden_size
-        #if self.project_MLP: mlp_innerdim = model_config.hidden_size
-        #else: mlp_innerdim = inner_dim
+        
         mlp_innerdim = model_config.hidden_size
         self.num_mlp_modules = inner_dim // mlp_innerdim if not project_MLP else 1
         
-        #output_backward = LinearBackward(config, \
-        #                                 din=mlp_innerdim, \
-        #                                 dout=model_config.hidden_size, \
-        #                                 use_softmax=False, \
-        #                                 memory_index=self.linear_memory_index, \
-        #                                )
-        #self.add_module('mlp_projection_back', output_backward)
+        
         
         output_descent  = Linear_Descent_Backward(config, \
                                                   din=mlp_innerdim, \
@@ -552,14 +511,7 @@ class optblock_backward(nn.Module):
                                                       )
         self.add_module('mlp_intermediate_back_descent', intermediate_descent)
         
-        #intermediate_descent = LinearDescent(config, \
-        #                                     din=model_config.hidden_size, \
-        #                                     dout=mlp_innerdim, \
-        #                                     use_softmax=False, \
-        #                                     memory_index=self.linear_memory_index,\
-        #                                     debug_zero=False
-        #                                    )
-        #self.add_module('mlp_intermediate_descent', intermediate_descent)
+        
         
         ln_2_backward = LayerNormDescent_Backward(config, \
                                                   din=model_config.hidden_size, \
@@ -568,42 +520,23 @@ class optblock_backward(nn.Module):
                                                  )
         self.add_module('mlp_ln_back', ln_2_backward)
         
-        #ln_2_descent  = LayerNormDescent(config, \
-        #                                 din=model_config.hidden_size, \
-        #                                 use_softmax=False, \
-        #                                 memory_index=self.ln_memory_index, \
-        #                                 debug_zero=True
-        #                                )
-        #self.add_module('mlp_ln_descent', ln_2_descent)
+        
         
         self.mlp_modules   = []
-        #self.update_memory = []
         self.skip_memory   = []
-        #self.store_memory  = []
 
             
         for _ in range(self.num_mlp_modules):
             self.mlp_modules   += [output_descent, activation_backward, intermediate_descent]
-            #self.update_memory += [True, True, True]
             self.skip_memory   += [False, False, False]
-            #self.store_memory  += [True, True, True]
             
         self.num_mlp_repetitive = 3
         self.ln_mlp_module_index = len(self.mlp_modules)
         self.mlp_modules   += [ln_2_backward]
-        #self.update_memory += [True]
         self.skip_memory   += [False]
-        #self.store_memory  += [True]
         
-        #Modules for forward through attention module
-        #attnt_proj_backward = LinearBackward(config, \
-        #                                     din=model_config.hidden_size, \
-        #                                     dout=model_config.hidden_size, \
-        #                                     use_softmax=False, \
-        #                                     memory_index=self.linear_memory_index, \
-        #                                    )
-        #self.add_module('attention_projection_back', attnt_proj_backward)
-        
+        #Modules for backward and descent through attention module
+
         attnt_proj_descent = Linear_Descent_Backward(config, \
                                                      din=model_config.hidden_size, \
                                                      dout=model_config.hidden_size, \
@@ -613,13 +546,7 @@ class optblock_backward(nn.Module):
                                                     )
         self.add_module('attention_projection_back_descent', attnt_proj_descent)
         
-        #attnt_backward = LightAttentionBackward(config, \
-        #                                        din=model_config.hidden_size, \
-        #                                        num_attnt_heads=model_config.num_attention_heads, \
-        #                                        memory_index=self.attn_memory_index, \
-        #                                        use_softmax=False, \
-        #                                       )
-        #self.add_module('attention_back', attnt_backward)
+        
         
         attnt_descent  = AttentionBackward_Descent(config, \
                                                     din=model_config.hidden_size, \
@@ -637,21 +564,11 @@ class optblock_backward(nn.Module):
                                                  )
         self.add_module('attention_ln_back', ln_1_backward)
         
-        #ln_1_descent  = LayerNormDescent(config, \
-        #                                 din=model_config.hidden_size, \
-        #                                 use_softmax=False, \
-        #                                 memory_index=self.ln_memory_index, \
-        #                                 debug_zero=True
-        #                                )
-        #self.add_module('attention_ln_descent', ln_1_descent)
         
         
         self.attnt_modules= [attnt_proj_descent, attnt_descent, ln_1_backward]
-        #self.update_memory += [True, True, True]
         self.skip_memory   += [False, True, False]
-        #self.store_memory  += [True, True, True]
-        #self.additional_act = [False, True, False]
-    
+        
         self.trainable_biases = nn.ParameterList(self.trainable_biases)
     
     def forward(self, \
@@ -681,19 +598,10 @@ class optblock_backward(nn.Module):
             else:
                 hidden_states = out_hidden_states
             
-            
-            #if self.update_memory[memory_counter]:
-            #first copy the weights onto the blank tokens 
-            #old_memory=memory_prefixes[weight_counter]
-            #hidden_states[:, :self.config.num_prefixes] += ( memory_prefixes[weight_counter] - hidden_states[:, :self.config.num_prefixes] ) <---- in-place operation
 
             hidden_states = torch.cat([ memory_prefixes[weight_counter], hidden_states[:, self.config.num_prefixes:] ], axis=1)
             
-            #if self.additional_act[memory_counter]:
-            #    additional_act = memory_activations[activation_counter]
-            #    activation_counter -= 1
-            #else:
-            #    additional_act = None
+            
             #further copy the memory on activations 
             mem_loc=self.memory_locations[activation_counter]
 
@@ -705,15 +613,10 @@ class optblock_backward(nn.Module):
 
             weight_counter -= 1
             
-            #print ("In", torch.amax(torch.absolute(hidden_states[:, self.config.num_prefixes:, :768])))
             out_hidden_states = module (hidden_states, position_embeddings, attention_mask)
-            #print ("Out", torch.amax(torch.absolute(out_hidden_states[:, self.config.num_prefixes:, :768])))
             
-            
-            #print ( torch.max ( torch.absolute(out_hidden_states[:, :self.config.num_prefixes] - hidden_states[:,:self.config.num_prefixes] ) )  )
             
             #push the new weights into memory
-            #if self.store_memory[memory_counter]:
             new_memory=out_hidden_states[:, :self.config.num_prefixes]
             new_memory_prefixes += [new_memory]
 
@@ -729,7 +632,6 @@ class optblock_backward(nn.Module):
                 out_hidden_states = final_state + out_hidden_states
                 
         hidden_states = out_hidden_states + residual
-        #print ("-----mlp----")
         
         residual = hidden_states
         stack_QK = None
@@ -737,16 +639,13 @@ class optblock_backward(nn.Module):
         
         for module in self.attnt_modules:
             hidden_states = out_hidden_states
-            #if self.update_memory[memory_counter]:
-            #first copy the weights onto the blank tokens
-            #old_memory=memory_prefixes[weight_counter]
-            #hidden_states[:, :self.config.num_prefixes] += ( memory_prefixes[weight_counter] - hidden_states[:, :self.config.num_prefixes] ) <---- in-place operation
+            
             hidden_states = torch.cat([ memory_prefixes[weight_counter], hidden_states[:, self.config.num_prefixes:] ], axis=1)
             #further copy the memory on activations 
             mem_loc=self.memory_locations[activation_counter]
             hidden_states[:, self.config.num_prefixes:, mem_loc:] += ( memory_activations[activation_counter] - hidden_states[:, self.config.num_prefixes:, mem_loc:] )
             activation_counter -= 1
-            #Skip uploading QK onto the blank tokens
+            #Skip uploading QK onto the prefix tokens
             if self.skip_memory [memory_counter]: 
                 weight_counter -= 1
                 if not self.separate_QK:
@@ -763,10 +662,8 @@ class optblock_backward(nn.Module):
                 weight_counter -= 1
 
             out_hidden_states = module (hidden_states, position_embeddings, attention_mask, icl_mask=icl_mask) 
-            #print (torch.amax(torch.absolute(out_hidden_states[:, self.config.num_prefixes:, :768])))
             
             #push the new weights into memory
-            #if self.store_memory[memory_counter]:
             new_memory=out_hidden_states[:, :self.config.num_prefixes]
             new_memory_prefixes += [new_memory]
             if stack_QK is not None:
@@ -774,7 +671,6 @@ class optblock_backward(nn.Module):
                 stack_QK = None
 
             memory_counter += 1
-        #print ("-----attention----")    
    
         hidden_states = out_hidden_states + residual
         
@@ -811,8 +707,7 @@ class finalgradient_compute(nn.Module):
         if  add_biases_prefixes: self.trainable_biases = []        
         self.reqd_biases = []
         self.trainable_biases = []
-        ############## -------------------------- Attention module -------------------------- ##############
-        #Modules for forward through attention module
+        #Modules for forward through layernorm module
         ln_f = LayerNormForward(config, \
                                 din=model_config.hidden_size, \
                                 use_softmax=False, \
@@ -825,7 +720,6 @@ class finalgradient_compute(nn.Module):
         
         self.forward_modules = [ln_f]
         
-        #config, din, use_softmax, debug_zero=False, retain_nablay=False, projection_matrix=None, memory_index=-1
         ln_f_backward = LayerNormDescent_Backward(config, \
                                                   din=model_config.hidden_size, \
                                                   use_softmax=False, \
@@ -833,13 +727,7 @@ class finalgradient_compute(nn.Module):
                                                   debug_zero=False, \
                                                  )
         self.add_module('ln_back', ln_f_backward)
-        #ln_f_descent  = LayerNormDescent(config, \
-        #                                 model_config.hidden_size, \
-        #                                 use_softmax=False, \
-        #                                 memory_index=self.ln_memory_index, \
-        #                                 debug_zero=True
-        #                                )
-        #self.add_module('ln_descent', ln_f_descent)
+        
         self.backward_modules = [ln_f_backward,]
 
         self.trainable_biases = nn.ParameterList(self.trainable_biases)
@@ -850,14 +738,14 @@ class finalgradient_compute(nn.Module):
         w = tensor.weight
         b = tensor.bias
         
-        num_wts_per_blank=w.shape[0] // self.config.num_prefixes 
+        num_wts_per_prefix=w.shape[0] // self.config.num_prefixes 
         din = w.shape[0]
       
         with torch.no_grad():
             reshaped_w = torch.diag(w)
-            reshaped_w = reshaped_w.reshape(self.config.num_prefixes, num_wts_per_blank * din)
-            biases[: , : num_wts_per_blank * din ] = reshaped_w
-            biases[: , num_wts_per_blank * din : num_wts_per_blank * din + din ] = b        
+            reshaped_w = reshaped_w.reshape(self.config.num_prefixes, num_wts_per_prefix * din)
+            biases[: , : num_wts_per_prefix * din ] = reshaped_w
+            biases[: , num_wts_per_prefix * din : num_wts_per_prefix * din + din ] = b        
         self.trainable_biases += [biases]
                 
     def forward(self, \
@@ -880,12 +768,9 @@ class finalgradient_compute(nn.Module):
             
            
             if initial_forward and len(self.trainable_biases) > 0:
-                #hidden_states[:, :self.config.num_prefixes] += ( self.trainable_biases[counter] - hidden_states[:, :self.config.num_prefixes] )
                 hidden_states = torch.cat( [ self.trainable_biases[counter].unsqueeze(0).expand(hidden_states[:, :self.config.num_prefixes].shape), hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
-                #hidden_states = torch.cat( [ self.trainable_biases[counter], hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
             else:
                 hidden_states = torch.cat( [ past_memory_prefixes[counter], hidden_states[:, self.config.num_prefixes:]  ], axis=1 )
-                #hidden_states[:, :self.config.num_prefixes] += ( past_memory_prefixes[counter] - hidden_states[:, :self.config.num_prefixes] )
                 
             counter += 1
             #store the weights for the future backward passes
@@ -910,12 +795,7 @@ class finalgradient_compute(nn.Module):
 
         din = desd_output.shape[-1]
         num_prefixes=self.config.num_prefixes
-        #hidden_states[:, num_prefixes:, :din] -= hidden_states[:, num_prefixes:, :din] 
         hidden_states[:, num_prefixes:, :din] -= ( desd_output + hidden_states[:, num_prefixes:, :din]   )
-        
-        #print (torch.max(desd_output).item() )
-        #print (hidden_states[:, 192, :din])
-        #exit(0)
 
         return hidden_states
 
@@ -933,10 +813,7 @@ class finalgradient_compute(nn.Module):
         new_memory_prefixes = []
         
         for module in self.backward_modules:
-            #if self.update_memory[memory_counter]:
-            #first copy the weights onto the blank tokens
-            #hidden_states[:, :self.config.num_prefixes] += ( memory_prefixes[counter] - hidden_states[:, :self.config.num_prefixes] ) <---- in-place operation
-            #print (memory_prefixes[counter].shape)
+            
             hidden_states = torch.cat( [ memory_prefixes[counter], hidden_states[:, self.config.num_prefixes:] ], axis=1 )
             #further copy the memory on activations 
             mem_loc = self.ln_memory_index
@@ -945,7 +822,6 @@ class finalgradient_compute(nn.Module):
             
             hidden_states = module (hidden_states, position_embeddings, attention_mask)
             #push the new weights into memory
-            #if self.store_memory[memory_counter]: 
             new_memory_prefixes += [hidden_states[:, :self.config.num_prefixes]]
             memory_counter += 1
         
@@ -961,19 +837,12 @@ class TinT_opt(nn.Module):
                  config, \
                  model_config, \
                  model_dict, \
-                 #num_forward_backward_passes=1, \
-                 #num_backward_layers=-1, \
-                 #reuse_forward_blocks=False, \
-                 #reuse_backward_blocks=False, \
                 ):
         
         super(TinT_opt, self).__init__()
         self.model_config=model_config
         self.config=config
         
-        
-        #reuse_forward_blocks=self.config.reuse_forward_blocks
-        #reuse_backward_blocks=self.config.reuse_backward_blocks
         
         
         self.wte = nn.Embedding(self.model_config.vocab_size, self.model_config.hidden_size)
@@ -1021,13 +890,11 @@ class TinT_opt(nn.Module):
         self.mlp_inner_projections = []
         self.mlp_outer_projections = []
         for layer in tqdm(range(self.n_layers), desc="Building initial Forward simulation modules"):
-            #per_oper_gpu = (self.config.n_gpus // 3)
             
             if self.config.device == 'cuda':
                 device = 'cuda:'+str( layer // self.config.n_layers_pergpu )
             else:
                 device = 'cpu'
-            #print (device, self.n_layers // per_oper_gpu, layer % ( self.n_layers // per_oper_gpu ) )
             module = optblock_forward(config, \
                                        model_config, \
                                        block=model_dict['model']['decoder']['layers'][str(layer)], \
@@ -1051,9 +918,6 @@ class TinT_opt(nn.Module):
         self.add_module('Gradientmodule', self.gradient_module.to(device))
         
         for for_back_iter in range(self.n_forward_backward):
-            #first set of backward modules
-            #device='cuda:'+str(per_oper_gpu + 1) % (self.config.n_gpus))
-            
             
             
             
@@ -1085,27 +949,11 @@ class TinT_opt(nn.Module):
                 self.all_modules += [module.to(device)]
                 
                 
-                #pre_forlayer = for_back_iter * (2 * self.n_back_layers) + layer
-                #module = optblock_backward(config, \
-                #                            model_config, \
-                #                            ln_memory_index=self.ln_memory_index, \
-                #                            attn_memory_index=self.attn_memory_index, \
-                #                            linear_memory_index=self.linear_memory_index, \
-                #                            act_memory_index=self.act_memory_index, \
-                #                            mlp_inner_projection_matrix=self.all_modules[pre_forlayer].inner_projection_matrixes[0], \
-                 #                           mlp_outer_projection_matrix=self.all_modules[pre_forlayer].outer_projection_matrixes[0], \
-                 #                           memory_locations=self.all_modules[pre_forlayer].memory_locations, \
-                 #                          )
-
-                #self.add_module('Backwardlayer_'+str(layer+1)+'_Iter_'+str(1+for_back_iter), module)
-                #self.all_modules += [module.to(device)]
-                #print (device)
+                
 
             #final forward pass
             for layer in tqdm(range(self.n_layers-self.n_back_layers, self.n_layers), desc="Building final Forward simulation modules for iteration "+str(for_back_iter + 1)):
-                #device='cuda:'+str(2 % (self.config.n_gpus))
-                #per_oper_gpu = (self.config.n_gpus // 3)
-                #device = 'cuda:'+str( 2*per_oper_gpu + layer // ( self.n_layers // per_oper_gpu ) )
+                
                 if self.config.device == 'cuda':
                     device = 'cuda:'+str( (self.n_layers + self.n_back_layers  + layer - (self.n_layers-self.n_back_layers) ) // self.config.n_layers_pergpu )
                 else:
@@ -1193,7 +1041,6 @@ class TinT_opt(nn.Module):
         position_embeddings[:, :self.config.num_prefixes, self.config.seq_length:] = torch.eye(self.config.num_prefixes)
         
         
-        #print ( input_ids.device, next(self.wte.parameters()).device )
         input_embeds = self.wte(input_ids)
         
         
@@ -1203,7 +1050,6 @@ class TinT_opt(nn.Module):
         #desd_output is target for computing gradient of the loss function!
         desd_output = torch.zeros_like(input_embeds)
         desd_output[:, :-1] += (input_embeds[:, 1:])
-        #desd_output = desd_output * bidirection_mask.unsqueeze(dim=-1).to(device) 
 
         
         hidden_states = torch.zeros((original_hidden_states.shape[0], total_seq_length, self.config.hidden_size)).to(device)
@@ -1213,11 +1059,9 @@ class TinT_opt(nn.Module):
         #return hidden_states
         
         #first forward pass
-        #print (hidden_states[0, 192])
-        memory_blank_stack = []
+        memory_prefix_stack = []
         memory_activations_stack = []
         for layer in range(self.n_layers):
-        #tqdm(range(self.n_layers), desc="Initial forward pass"):
             
             if layer == self.n_layers - self.n_back_layers:
                 continued_forward_state=hidden_states
@@ -1231,13 +1075,12 @@ class TinT_opt(nn.Module):
                                                                  initial_forward=True, \
                                                                  icl_mask=icl_mask,
                                                                 )
-            #print (hidden_states[0, 192])
             if layer >= self.n_layers - self.n_back_layers:
                 memory_activations_stack += [ memory_activations ]
-                memory_blank_stack += [ memory_prefixes ]
+                memory_prefix_stack += [ memory_prefixes ]
             else:
                 memory_activations_stack += [ None ]
-                memory_blank_stack += [ None ]
+                memory_prefix_stack += [ None ]
                 
         self.memory_activations_stack = memory_activations_stack
         
@@ -1257,7 +1100,7 @@ class TinT_opt(nn.Module):
             device=next(self.gradient_module.parameters()).device
             
             hidden_states, \
-            gradient_blank, \
+            gradient_prefix, \
             gradient_act = self.gradient_module.forward(hidden_states=hidden_states.to(device), \
                                                         position_embeddings=position_embeddings.to(device) \
                                                        )
@@ -1271,7 +1114,6 @@ class TinT_opt(nn.Module):
             
             for for_back_iter in range(self.n_forward_backward):
                 #compute loss gradient
-                #device=next(self.gradient_module.parameters()).device
                 
                 
                 device=next(self.gradient_module.parameters()).device
@@ -1294,55 +1136,41 @@ class TinT_opt(nn.Module):
                 hidden_states = self.gradient_module.lossgradient( hidden_states.to(device), gradient ) 
 
                 
-                #device=next(self.gradient_module.parameters()).device 
-                #hidden_states = hidden_states.to(device)
+               
                 #Backward pass
                 hidden_states, \
                 lnf_memory_prefixes = self.gradient_module.backward(hidden_states=hidden_states.to(device), \
                                                                   position_embeddings=position_embeddings.to(device), \
                                                                   attention_mask=attention_mask.to(device),\
                                                                   memory_activations=[p.to(device) for p in gradient_act], \
-                                                                  memory_prefixes=[p.to(device) for p in gradient_blank], \
+                                                                  memory_prefixes=[p.to(device) for p in gradient_prefix], \
                                                                  )
-                #print (lnf_memory_prefixes[0][:, 0] - gradient_blank[0][:, 0])
                 
-                #device='cuda:'+str(1 % self.config.n_gpus) 
-                #hidden_states = hidden_states.to(device)
                 module_begin = for_back_iter * (2 * self.n_back_layers) + self.n_layers
                 for layer in range(self.n_layers-1, self.n_layers-self.n_back_layers-1, -1):
-                #tqdm(range(self.n_layers-1, self.n_layers-self.n_back_layers-1, -1), \
-                #                  desc="Backward and descent, Iteration " +str(for_back_iter+1)):
-                    
-                    #stack_layer=2*self.n_layers - 1 - layer
+                
                     
                     module_index = module_begin + layer - (self.n_layers-self.n_back_layers)
                     device=next(self.all_modules[module_index].parameters()).device 
                     
-                    #stack_layer = for_back_iter * (2 * self.n_back_layers) + self.n_layers - 1 - layer
                     hidden_states, \
                     memory_prefixes = self.all_modules[module_index].forward(hidden_states=hidden_states.to(device),\
                                                                            position_embeddings=position_embeddings.to(device),\
                                                                            attention_mask=attention_mask.to(device), \
                                                                            memory_activations=[p.to(device) for p in memory_activations_stack[layer]], \
-                                                                           memory_prefixes=[p.to(device) for p in memory_blank_stack[layer]], \
+                                                                           memory_prefixes=[p.to(device) for p in memory_prefix_stack[layer]], \
                                                                            icl_mask=icl_mask,\
                                                                           )
-                    #print (  [torch.amax( torch.abs( memory_blank_stack[layer][i] - memory_prefixes[i] ) )  for i in range(len(memory_prefixes))] )
-                    #exit(0)
-                    memory_blank_stack[layer] = memory_prefixes
+                    
+                    memory_prefix_stack[layer] = memory_prefixes
 
                 #Final forward pass
-                #if test_entire_model:
+ 
                 module_begin  = module_begin + self.n_back_layers
                 hidden_states = continued_forward_state
-                #hidden_states = hidden_states.to( 'cuda:'+str(2 % self.config.n_gpus) )
                 
                 for layer in range(self.n_layers-self.n_back_layers, self.n_layers):
-                    #tqdm(range(self.n_layers-self.n_back_layers, self.n_layers), \
-                    #     desc="Forward pass, Iteration " +str(for_back_iter+1)):
                     
-                    #stack_layer=layer - 2*self.n_layers
-                    #device=next(self.all_modules[module_index].parameters()).device 
                     
                     module_index = module_begin + layer - (self.n_layers-self.n_back_layers)
                     device=next(self.all_modules[module_index].parameters()).device 
@@ -1351,21 +1179,17 @@ class TinT_opt(nn.Module):
                     _, \
                     memory_activations = self.all_modules[module_index].forward(hidden_states=hidden_states.to(device),\
                                                                                 position_embeddings=position_embeddings.to(device),\
-                                                                                past_memory_prefixes=[p.to(device) for p in memory_blank_stack[layer]],\
+                                                                                past_memory_prefixes=[p.to(device) for p in memory_prefix_stack[layer]],\
                                                                                 initial_forward=False, \
                                                                                 icl_mask=icl_mask,\
                                                                                )
-                    #memory_blank_stack[layer]       = memory_prefixes
+                   
                     memory_activations_stack[layer] = memory_activations
                     
-                #print ( max([ torch.max( gradient_blank[0][:, i] - lnf_memory_prefixes[0][:, i] ).item() for i in range(self.config.num_prefixes) ]))  
-                #exit(0)
                 
-                #print (hidden_states[0, 192])
-                #print ('******', len(lnf_memory_prefixes), '******')
                 device=next(self.gradient_module.parameters()).device 
                 hidden_states, \
-                gradient_blank, \
+                gradient_prefix, \
                 gradient_act = self.gradient_module.forward(hidden_states=hidden_states.to(device), \
                                                             position_embeddings=position_embeddings.to(device),\
                                                             past_memory_prefixes=[p.to(device) for p in lnf_memory_prefixes],\
