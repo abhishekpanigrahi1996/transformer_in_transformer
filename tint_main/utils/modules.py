@@ -121,18 +121,10 @@ class Conv2D(nn.Module):
         if not self.transpose:
             x = x.view(-1, self.nf, self.nx) 
             x = torch.stack([x [:, i] @ self.weight [i] for i in range(self.nf)], dim=1) + self.bias
-            #x = (x.view(-1, self.nf, 1, self.nx) @ self.weight).squeeze(dim=-2) + self.bias
             x = x.view(size_out)
         else:
-            #x = x.view(-1, self.nf, self.nx) 
-            #x = torch.stack([x [:, :, i] @ self.weight [i] for i in range(self.nx)], dim=-1) + self.bias
-            #x_copy = x.clone()
-            #x_mul = torch.einsum("ijk,ijk->ik", (x.view(-1, self.nf, self.nx), self.weight.transpose(-3, -1)))
-            #torch.tensordot(x.view(-1, 1, self.nf, self.nx), self.weight.transpose(-3, -1).unsqueeze(0), dims=([-2], [-2]))
-            #x_mul = torch.mul(x.view(-1, 1, self.nf, self.nx), self.weight.transpose(-3, -1).unsqueeze(0)).sum(axis=-2)
             
             if self.use_einsum:
-                #print (x.device, self.weight.device, self.bias.device)
                 x = torch.einsum( 'ijk,ljk->ilk', x.view(-1, self.nf, self.nx), self.weight.transpose(-3, -1)  ) + self.bias.transpose(-1, -2)
                 x = x.contiguous().view(size_out) 
             else:
@@ -140,15 +132,6 @@ class Conv2D(nn.Module):
                 x = x.transpose(-1, -2)
                 x = x.contiguous().view(size_out)
             
-            #x_copy = (x_copy.view(-1, self.nf, 1, self.nx).transpose(-3, -1) @ self.weight).squeeze(dim=-2) + self.bias
-            #x_copy = x_copy.transpose(dim0=-1, dim1=-2)
-            #x_copy = x_copy.contiguous().view(size_out)
-            
-            #max_diff = torch.amax(torch.absolute(x_copy - x))
-            #max_diff_ind = torch.argmax(torch.absolute(x_copy - x))
-            
-            #if max_diff > 1e-10:
-            #    print ("max_diff", max_diff, x_copy[torch.where(x_copy != x)],  x[torch.where(x_copy != x)] )
             
         return x
 
@@ -190,7 +173,6 @@ class up_projection(nn.Module):
 
         with torch.no_grad():    
             
-            #self.channel_projection_.weight[:, mem_head_start:mem_head_start+num_useful_channels, 0] = 1.
             self.channel_projection.weight.copy_(torch.zeros(channel_dim, num_channels, num_channels))
             self.channel_projection.weight[:, signal_head_start, store_head_start:store_head_start+num_useful_channels] = 1.
             
@@ -236,7 +218,6 @@ class down_projection(nn.Module):
             self.projection.weight.copy_(c_proj_init.transpose(-1, -2))
             
             
-            #self.channel_projection_.weight[:, mem_head_start:mem_head_start+num_useful_channels, 0] = 1.
             self.channel_projection.weight.copy_(torch.zeros(channel_dim, num_channels, num_channels))
             self.channel_projection.weight[:, signal_head_start: signal_head_start+num_useful_channels, store_head_start] = 1.
             
@@ -247,15 +228,11 @@ class down_projection(nn.Module):
 class Gates (nn.Module):
     def __init__(self, config):
         super().__init__()
-        #self.embed_dim = config.hidden_size
         self.position_dim = config.position_dim
-        #self.old_w = Conv1D(1, self.embed_dim)
-        #self.old_u = Conv1D(1, self.embed_dim)
+        
         self.old_v = Conv1D(1, self.position_dim)
         
 
-        #self.new_w = Conv1D(1, self.embed_dim)
-        #self.new_u = Conv1D(1, self.embed_dim)
         self.new_v = Conv1D(1, self.position_dim)
         
         self.act = torch.nn.Tanh()
@@ -545,9 +522,7 @@ class Attention(nn.Module):
             if p_expand_bias is not None:
                 self.p_expand.bias.copy_(p_expand_bias)
                 
-            #self.p_value.weight.copy_(p_attn_init[2*self.embed_dim:])
-            #self.p_value.bias.copy_(p_attn_bias[2*self.embed_dim:])
-
+            
             if self.is_cross_attention:
                 self.c_attn.weight.copy_(c_attn_init[:3 * self.embed_dim].T)
                 self.c_attn.bias.copy_(c_attn_bias[:3 * self.embed_dim])
@@ -596,21 +571,12 @@ class Attention(nn.Module):
     
     #In linear attention, I assume attention mask is of shape (b, 1, n)!
     def linear_attn(self, query, key, value, attention_mask=None, restrict_prefixes=False):
-        #vk_top = key.unsqueeze(-1)[:, :, :self.config.num_prefixes] @ value.unsqueeze(-2)[:, :, :self.config.num_prefixes]
-        #vk_top = torch.sum( vk_top, axis=2 )
-        #qvk = query @ vk_top 
-        #return qvk, None
-        #import time
-        #start = time.time() 
+        
         attn_weights = torch.matmul(query[:, :, self.config.num_prefixes:], key[:, :, :self.config.num_prefixes].transpose(-1, -2))
         qvk = torch.matmul(attn_weights, value[:, :, :self.config.num_prefixes])
-        #end = time.time()
-        #print ("------")
-        #print("Time for multiplication: ", end - start)
+        
         qvk = torch.cat([ torch.zeros( (qvk.shape[0], qvk.shape[1], self.config.num_prefixes, qvk.shape[3]), device=qvk.device ),  qvk ], dim=2)
-        #end = time.time()
-        #print("Time after concatenation: ", end - start)
-        #print ("------")
+        
         return qvk, None
         
 
@@ -621,13 +587,8 @@ class Attention(nn.Module):
             return (attn_output, attn_weights)
         
         #Modify the attention weights to involve a component from the position embeddings
-        #if not restrict_prefixes:
         attn_weights = torch.matmul(query, key.transpose(-1, -2))
-        #else:
-            
-        #    attn_weights = torch.zeros(( query.shape[0], query.shape[1],  query.shape[2], key.shape[2] ), dtype=query.dtype, device=query.device)
-        #    attn_weights[ :, :, :, :self.config.num_prefixes ] += torch.matmul(query, key[:, :, :self.config.num_prefixes].transpose(-1, -2))
-            
+         
         
         if self.scale_attn_weights:
             attn_weights = self.initial_scale * attn_weights / torch.full(
@@ -658,23 +619,19 @@ class Attention(nn.Module):
         
         
         if self.normalize:
-            #if self.attnt_back and self.peak_into_future:
-            #    attn_weights = attn_weights + (1. - attention_mask) * mask_value
-                
+               
             attn_weights = nn.functional.softmax(attn_weights, dim=-1)
         
         if self.attnt_back and self.peak_into_future:
             attn_weights = torch.swapaxes(attn_weights, axis0=-1, axis1=-2)
         
         if attention_mask is not None:
-            #if not(self.normalize and not self.attnt_back):
             if not(self.normalize and not self.attnt_back): attn_weights = attn_weights * attention_mask
             
         
         # Downcast (if necessary) back to V's dtype (if in mixed-precision) -- No-Op otherwise
         attn_weights = attn_weights.type(value.dtype)
         
-        #print (value[0, 0, 64])
         attn_weights = self.attn_dropout(attn_weights)
 
         # Mask heads if we want to
@@ -798,7 +755,6 @@ class Attention(nn.Module):
             else:
                 key = hidden_states
             
-            #key   = self.k_attn( self.k_attn_head(hidden_states) )
             if self.v_attn_head_update and self.v_attn_update:
                 value = self.v_attn( self.v_attn_head(hidden_states) )
             elif self.v_attn_update and not self.v_attn_head_update: 
@@ -838,16 +794,11 @@ class Attention(nn.Module):
         else:
             attn_output, attn_weights = self._attn(query, key, value, attention_mask, normalization_mask, head_mask, restrict_prefixes)
         
-        #import time
-        #start = time.time() 
+        
         attn_output = self._merge_heads(attn_output, self.num_heads, self.head_dim)
-        #end = time.time()
-        #print ("------")
-        #print("Time for merge heads: ", end - start)
+        
         attn_output = self.c_proj(attn_output)
-        #end = time.time()
-        #print("Time for projection: ", end - start)
-        #print ("------")
+        
         
         attn_output = self.resid_dropout(attn_output)
     
@@ -858,4 +809,4 @@ class Attention(nn.Module):
         if output_attentions:
             outputs += (attn_weights,)
 
-        return outputs  # a, present, (attentions)
+        return outputs 

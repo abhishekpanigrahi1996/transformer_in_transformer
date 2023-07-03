@@ -16,27 +16,7 @@ from ..activations import *
 
 
 
-#------------------------------------------------------------------#
-#embedding structure [ signal, memory, position ] 
-#I will introduce k prefixes to separate different sub-sequences
-#------------------------------------------------------------------#
 
-
-
-#------------------------------------------------------------------#
-#config contains the following important parameters: 
-#config.signal_start : Start Index of current signal embeddings (0 always)
-#config.signal_end : End Index of current signal
-#config.memory_start : Start index of memorized embeddings (from a previous layer)
-#config.memory_end : End Index of memorized embeddings (from a previous layer)
-#config.position_start : Start index of one-hot position embeddings
-#config.seq_length : Sequence length of the smaller model that we are trying to simulate
-#config.blank_identifier : Index containing Identifiers for blank token
-#config.num_prefixes : Number of prefixes to separate the sub-sequences
-#config.num_attention_heads : Number of attention heads
-#config.scale_embeddings : A scale to initialize different query, key matrices
-#config.inner_lr : Inner learning rate to simulate sgd  
-#------------------------------------------------------------------# 
 class ActivationForward (nn.Module):
     def __init__ (self, config, din, projection_matrix=None, memory_index=-1):
         super(ActivationForward, self).__init__()
