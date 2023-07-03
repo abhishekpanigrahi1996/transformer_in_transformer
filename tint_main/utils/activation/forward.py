@@ -112,13 +112,9 @@ class ActivationForward (nn.Module):
         v_bias [1] += config.gate_scale
 
         self.mlp_gates.initialize_weights (w, u, v, w_bias, u_bias, v_bias)
-        
-        #self.add_module('MLPforward_mlp', self.mlp_module)
-        #self.add_module('MLPforward_gates', self.mlp_gates)
-        
+
         
     def forward(self, hidden_states, position_embeddings):
-        #print ("----", torch.sum(torch.absolute(hidden_states[:, self.config.num_prefixes:, self.memory_index:])).item(), "-----")
         mlp_out = self.mlp_module.forward(hidden_states)
         if self.projection_ is not None:
             mlp_out = self.projection_(mlp_out)

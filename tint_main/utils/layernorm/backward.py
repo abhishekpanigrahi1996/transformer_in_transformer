@@ -51,15 +51,12 @@ class LayerNormBackward(nn.Module):
         c_proj_init = torch.zeros((head_dim, config.num_attention_heads, config.num_attention_heads))
         
     
-        #compute x + \epsilon \nabla y
-        #c_fc_init[din: 2*din, din: 2*din] = 1./config.scale_embeddings * torch.eye(din)
-        #c_fc_init[din: 2*din, self.memory_index + din: self.memory_index + 2*din] = torch.eye(din)
+
         
         assert din % head_dim == 0, \
             " 'din' should be a multiple of head_dim! "
         
         num_partitions = din // head_dim
-        #print (num_partitions)
         
         
         
@@ -67,7 +64,6 @@ class LayerNormBackward(nn.Module):
             "Memory should start at a multiple of head_dim!"
         
         mem_head_start = self.memory_index // head_dim
-        #print (mem_head_start)
         
         if retain_nablay:
             start_shift = num_partitions
@@ -80,17 +76,12 @@ class LayerNormBackward(nn.Module):
         
         
         #Compute GeLU(x + 1/N \nabla y) - GeLU(x)
-        #c_proj_init[din: 2*din, din: 2*din] = config.scale_embeddings * torch.eye(din)
-        #c_proj_init[din: 2*din, self.memory_index: self.memory_index + din] = -config.scale_embeddings * torch.eye(din)
-        #config.scale_embeddings *
-        #config.scale_embeddings *
+
         c_proj_init[:, start_shift: start_shift + num_partitions, start_shift: start_shift + num_partitions] = config.scale_embeddings * torch.eye(num_partitions)
         c_proj_init[:, start_shift: start_shift + num_partitions, mem_head_start: mem_head_start + num_partitions] = -config.scale_embeddings  * torch.eye(num_partitions)
         
         
         with torch.no_grad():
-            #self.c_fc.weight.copy_(c_fc_init.T)
-            #self.proj_fc.weight.copy_(c_proj_init.T)
             
             self.c_fc.weight.copy_(torch.swapaxes(c_fc_init, axis0=-1, axis1=-2))
             self.proj_fc.weight.copy_(torch.swapaxes(c_proj_init, axis0=-1, axis1=-2))
@@ -126,11 +117,7 @@ class LayerNormBackward(nn.Module):
 
         self.normalization_gates.initialize_weights (w, u, v, w_bias, u_bias, v_bias)
 
-        #self.add_module('Layernormback_weights', self.w)
-        #self.add_module('Layernormback_normgates', self.normalization_gates)
-        #self.add_module('Layernormback_Linearback', self.linear)
-        #self.add_module('Layernormback_c_fc', self.c_fc)
-        #self.add_module('Layernormback_proj_fc', self.proj_fc)
+        
         
     def forward(self, hidden_states, position_states, attention_mask=None, icl_mask=None):    
         
@@ -165,7 +152,6 @@ class LayerNormBackward(nn.Module):
         #######################################################################
             
         gated_output = self.normalization_gates.forward ( hidden_states, second_layer, position_states)
-        #print (gated_output[0, 4, din: 2*din])
         
         return gated_output
         
@@ -176,7 +162,6 @@ class LayerNormDescent(nn.Module):
         super(LayerNormDescent, self).__init__()
         self.config=config
         self.linear = LinearDescent(config, din=din, dout=din, use_softmax=use_softmax, memory_index=memory_index, debug_zero=debug_zero, update_bias_only=self.config.ln_update_bias_only) 
-        #self.add_module('Layernormdescent_lineardescent', self.linear)
         
     def forward(self, hidden_states, position_states, attention_mask, activation_memory=None, icl_mask=None):   
         return self.linear.forward(hidden_states, position_states, attention_mask)    
@@ -195,7 +180,6 @@ class LayerNormDescent_Backward(nn.Module):
                                           retain_nablay=retain_nablay, \
                                           memory_index=memory_index, \
                                          )
-        #self.add_module('backward_layer', self.backward)
         
         self.descent = LayerNormDescent(config, \
                                         din=din, \
@@ -203,7 +187,6 @@ class LayerNormDescent_Backward(nn.Module):
                                         memory_index=memory_index,\
                                         debug_zero=debug_zero, \
                                        )
-        #self.add_module('descent_layer', self.descent)
         
     def forward(self, hidden_states, position_embeddings, attention_mask, activation_memory=None, icl_mask=None):
         backward_out = self.backward(hidden_states, position_embeddings)

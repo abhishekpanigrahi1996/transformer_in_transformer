@@ -44,15 +44,11 @@ class ActivationBackward (nn.Module):
         c_proj_init = torch.zeros((head_dim, config.num_attention_heads, config.num_attention_heads))
         
     
-        #compute x + \epsilon \nabla y
-        #c_fc_init[din: 2*din, din: 2*din] = 1./config.scale_embeddings * torch.eye(din)
-        #c_fc_init[din: 2*din, self.memory_index + din: self.memory_index + 2*din] = torch.eye(din)
         
         assert din % head_dim == 0, \
             " 'din' should be a multiple of head_dim! "
         
         num_partitions = din // head_dim
-        #print (num_partitions)
         
         
         
@@ -60,12 +56,10 @@ class ActivationBackward (nn.Module):
             "Memory should start at a multiple of head_dim!"
         
         mem_head_start = self.memory_index // head_dim
-        #print (mem_head_start)
         
         
         start_shift = 0
         c_fc_init[:, start_shift: start_shift + num_partitions, start_shift: start_shift + num_partitions] = 1. / config.scale_embeddings * torch.eye(num_partitions)
-        #1. / config.scale_embeddings
         c_fc_init[:, start_shift: start_shift + num_partitions, mem_head_start: mem_head_start + num_partitions] =  torch.eye(num_partitions)
         
         #pass x as well
@@ -73,10 +67,7 @@ class ActivationBackward (nn.Module):
         
         
         #Compute GeLU(x + 1/N \nabla y) - GeLU(x)
-        #c_proj_init[din: 2*din, din: 2*din] = config.scale_embeddings * torch.eye(din)
-        #c_proj_init[din: 2*din, self.memory_index: self.memory_index + din] = -config.scale_embeddings * torch.eye(din)
-        #config.scale_embeddings *
-        #config.scale_embeddings *
+
         c_proj_init[:, start_shift: start_shift + num_partitions, start_shift: start_shift + num_partitions] = config.scale_embeddings * torch.eye(num_partitions)
         c_proj_init[:, start_shift: start_shift + num_partitions, mem_head_start: mem_head_start + num_partitions] = -config.scale_embeddings  * torch.eye(num_partitions)
         
@@ -89,10 +80,7 @@ class ActivationBackward (nn.Module):
             self.c_fc.weight.copy_(torch.swapaxes(c_fc_init, axis0=-1, axis1=-2))
             self.proj_fc.weight.copy_(torch.swapaxes(c_proj_init, axis0=-1, axis1=-2))
 
-        #self.add_module('Layernormback_weights', self.w)
-        #self.add_module('Attention_normgates', self.gates)
-        #self.add_module('Attention_c_fc', self.c_fc)
-        #self.add_module('Attention_proj_fc', self.proj_fc)
+        
         
     def forward(self, hidden_states, position_embeddings, attention_mask=None, activation_memory=None, icl_mask=None):
         output = self.proj_fc ( self.act( self.c_fc(hidden_states) ) )

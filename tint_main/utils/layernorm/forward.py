@@ -59,37 +59,28 @@ class LayerNormForward(nn.Module):
         self.normalization_gates.initialize_weights (w, u, v, w_bias, u_bias, v_bias)
         
         
-        #self.add_module('LayernormForward_weights', self.w)
-        #self.add_module('LayernormForward_normgates', self.normalization_gates)
-        #self.add_module('LayernormForward_Linearforward', self.linear)
-        
+      
         
     def forward(self, hidden_states, position_embeddings):
         
-        #print ("------", torch.sum( torch.absolute(hidden_states[:, self.config.num_prefixes:, self.memory_index:])).item(), "------")
-        #print (hidden_states[0, self.config.num_prefixes, self.memory_index:])
+        
         weights = self.gate ( self.w ).to(hidden_states.device)
         mean = torch.sum(hidden_states * weights, dim=-1, keepdim=True) / torch.sum(weights, dim=-1, keepdim=True)
         
         var = ( self.epsilon + torch.sum( (weights * (hidden_states - mean)) ** 2, dim=-1, keepdim=True) / torch.sum(weights, dim=-1, keepdim=True) ) ** 0.5
         
         normalized_states = (hidden_states - mean) / var
-        #print (normalized_states[0, self.config.num_prefixes, self.memory_index:])
         normalized_states = weights * normalized_states + (1. - weights) * hidden_states
-        #print (normalized_states[0, self.config.num_prefixes, self.memory_index:])
         
         gated_output = self.normalization_gates.forward (hidden_states, normalized_states, position_embeddings)
-        #print (gated_output[0, self.config.num_prefixes, self.memory_index:])
         
         output = self.linear.forward ( gated_output, position_embeddings )
         
-        #print ("------", torch.sum( torch.absolute(output[:, self.config.num_prefixes:, self.memory_index:])).item(), "------")
-        #print (output[0, self.config.num_prefixes, self.memory_index:])
+        
         #store [(x-\mu)/\sigma, x] for memory in backward pass
         assert torch.sum( torch.absolute( output[:, self.config.num_prefixes:, self.memory_index+self.din:]) ).item() < 1e-10,\
                "Memory portion not empty!"
         output[:, self.config.num_prefixes:, self.memory_index+self.din: self.memory_index+2*self.din] += hidden_states[:, self.config.num_prefixes:, :self.din]
-        #output[:, :, self.memory_index+self.din: self.memory_index+2*self.din] += hidden_states[:, :, :self.din]
         
         return output
     
