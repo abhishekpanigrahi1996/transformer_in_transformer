@@ -143,7 +143,7 @@ python -m tests.perplexity_eval \
 
 ### Downstream Evaluation
 
-Please refer to the README file in **icl_eval** folder.
+Please refer to the README file in [**icl_eval**](https://github.com/abhishekpanigrahi1996/transformer_in_transformer/tree/main/icl_eval) folder.
 
 
 ### Hyperparameter considerations

@@ -16,9 +16,27 @@ from ..linear import *
 
 
 #Implements the stop-attention gradient, where we don't compute the gradient w.r.t. the attention scores
+#The module contains one attention module, where the attention scores are re-computed between query and key vectors, transposed before dispersing the gradients.
+
+#All arguments
+#self, \
+#config, \                   #TinT config file
+#din, \                      #input dimension of auxiliary's linear layer
+#num_attnt_heads, \          #number of attention heads in the Auxiliary's self-attention
+#use_softmax=False, \        #linear self_attention used
+#retain_nablay=False, \      #Retain nablay for Descent pass
+#memory_index=-1,\           #Start index where activations are stored in Linear Forward.
+
 class AttentionBackward(nn.Module):
 
-    def __init__ (self, config, din, num_attnt_heads, use_softmax, retain_nablay=False, memory_index=-1):
+    def __init__ (self, \
+                  config, \
+                  din, \
+                  num_attnt_heads, \
+                  use_softmax, \
+                  retain_nablay=False, \
+                  memory_index=-1,\
+                 ):
         super(AttentionBackward, self).__init__()
         
         assert use_softmax==False ,\
@@ -28,7 +46,6 @@ class AttentionBackward(nn.Module):
     
         self.attnt_gates = Gates (config)
         
-        #self.backward = LinearBackward(config, din=din, dout=din, use_softmax=False, retain_nablay=retain_nablay) 
         self.retain_nablay = retain_nablay
         self.memory_index = memory_index
         self.config = config
@@ -52,8 +69,6 @@ class AttentionBackward(nn.Module):
         assert self.memory_index  == -1 or self.memory_index >= self.din, \
             "Memory is crossing current signal (and additional computation space)!"
         
-        #assert config.seq_length <= head_dim ,\
-        #    "Currently I assume the head dimension is atleast the sequence length of original model"
         
         #--------------------------------#--------------------------------#
         #For all Attention heads on the embeddings
@@ -81,11 +96,6 @@ class AttentionBackward(nn.Module):
         for i in range(num_partitions):
             for j in range(num_attnt_heads_per_partition):
                 q_attn_head[ :, i * num_attnt_heads_per_partition + j, i + mem_head_start ] = 1.
-        #print (q_attn_head[0])
-        #exit(0)
-        
-        #q_attn_head[:, :, 0] = 1.
-        #q_attn_head = q_attn_head.view((head_dim, config.num_attention_heads, config.num_attention_heads))
         
         q_attn = torch.zeros((config.num_attention_heads, head_dim, head_dim))
         for i in range(num_attnt_heads):
@@ -93,38 +103,14 @@ class AttentionBackward(nn.Module):
             q_attn[ i, :basemodel_head_dim, partition*basemodel_head_dim: (partition + 1)*basemodel_head_dim ] = torch.eye(basemodel_head_dim)
             
             
-        #query = torch.zeros((2*config.num_attention_heads, head_dim, config.hidden_size))
-        #query [:num_attnt_heads, :basemodel_head_dim, :basemodel_head_dim] = torch.eye(basemodel_head_dim)
-        #for i in range (num_attnt_heads):
-        #    query[i, :basemodel_head_dim, self.memory_index + i*basemodel_head_dim: self.memory_index + (i+1)*basemodel_head_dim] = torch.eye(basemodel_head_dim)
-
-        #query = query.view( (2*config.hidden_size, config.hidden_size) )
         
-        #key = torch.zeros((2*config.num_attention_heads, head_dim, config.hidden_size))
-        #key [:num_attnt_heads, :basemodel_head_dim, :basemodel_head_dim] = torch.eye(basemodel_head_dim)
-        #for i in range (num_attnt_heads):
-        #    key[i, :basemodel_head_dim, self.memory_index + din + i*basemodel_head_dim: self.memory_index + din + (i+1)*basemodel_head_dim] = torch.eye(basemodel_head_dim)
-        #key = key.view( (2*config.hidden_size, config.hidden_size) )
-
-
-        #value = torch.zeros((config.num_attention_heads, head_dim, config.hidden_size))
-        #key [:num_attnt_heads, :basemodel_head_dim, :basemodel_head_dim] = torch.eye(basemodel_head_dim)
-        #for i in range (num_attnt_heads):
-        #    value[i, :basemodel_head_dim, i*basemodel_head_dim: (i+1)*basemodel_head_dim] = torch.eye(basemodel_head_dim)
-        #value = value.view( (config.hidden_size, config.hidden_size) )
-        
-        #c_attn_init, c_attn_bias = torch.cat([query, key, value], axis=0), torch.zeros(5 * config.hidden_size)
-
         
         k_attn_head = torch.zeros((head_dim, config.num_attention_heads, config.num_attention_heads))
         for i in range(num_partitions):
             for j in range(num_attnt_heads_per_partition):
                 k_attn_head[ :, i * num_attnt_heads_per_partition + j, i + num_partitions + mem_head_start] = 1.
         
-         
-        #q_attn_head[:, :, 0] = 1.
-        #q_attn_head = q_attn_head.view((head_dim, config.num_attention_heads, config.num_attention_heads))
-        
+
         k_attn = torch.zeros((config.num_attention_heads, head_dim, head_dim))
         for i in range(num_attnt_heads):
             partition = i % num_attnt_heads_per_partition
@@ -132,19 +118,12 @@ class AttentionBackward(nn.Module):
             
         
         value_head = 0
-        #if not self.config.backprop_through_attention:
-        #    value_head = (self.memory_index + 2*self.din) // head_dim
-            
+          
             
         v_attn_head = torch.zeros((head_dim, config.num_attention_heads, config.num_attention_heads))
         for i in range(num_partitions):
             for j in range(num_attnt_heads_per_partition):
                 v_attn_head[ :, i * num_attnt_heads_per_partition + j, i + value_head ] = 1.
-        
-        #print (v_attn_head[:2])
-        #exit(0) 
-        #q_attn_head[:, :, 0] = 1.
-        #q_attn_head = q_attn_head.view((head_dim, config.num_attention_heads, config.num_attention_heads))
         
         
         
@@ -154,40 +133,9 @@ class AttentionBackward(nn.Module):
             partition = i % num_attnt_heads_per_partition
             v_attn[ i, partition*basemodel_head_dim: (partition + 1)*basemodel_head_dim,  partition*basemodel_head_dim:  (partition + 1)*basemodel_head_dim ] = torch.eye(basemodel_head_dim)
 
-        #--------------------------------#--------------------------------#
-        #For all Attention heads on the positions
-        #Query, Key are set such that we never attend to the blank tokens!
-        #--------------------------------#--------------------------------#
-        #position_dim_combined = config.position_dim * config.num_attention_heads
-
-        #query = torch.zeros((config.num_attention_heads, head_dim, config.position_dim))
-        #query[:num_attnt_heads, 0, :config.seq_length] = 1.
-        #query = query.view( (config.hidden_size, config.position_dim) )
         
-        
-        #key = torch.zeros((config.num_attention_heads, head_dim, config.position_dim))        
-        #key[:num_attnt_heads, 0, config.seq_length: config.position_dim] = -torch.finfo(self.attnt_module.c_attn.weight.dtype).max
-        #key = key.view( (config.hidden_size, config.position_dim) )
-        
-        #value = torch.zeros((config.num_attention_heads * head_dim, config.position_dim))
-        #p_attn_init = torch.cat([query, key, value], axis=0)
-        
-
-        #--------------------------------#--------------------------------------------#--------------------------------#
-        #The projection matrix after the attention module places the output of the attention module after \nabla y at each position i
-        #--------------------------------#--------------------------------------------#--------------------------------#
-        #c_proj_init = torch.zeros((config.hidden_size, config.hidden_size))
-        
-        #if retain_nablay: start_index = din
-        #else: start_index = 0
-            
-        #for i in range(din):
-        #    c_proj_init [ i, (i // basemodel_head_dim) * head_dim + i % basemodel_head_dim] = 1.
         c_proj_init = torch.zeros((head_dim, config.num_attention_heads, config.num_attention_heads))
-        #, torch.zeros(config.hidden_size)
-        #c_proj_init[ :din, :din ] = torch.eye(din)
-        #for i in range(din):
-        #    c_proj_init[i, (i // basemodel_head_dim) * head_dim + i % basemodel_head_dim] = 1.
+        
         for i in  range(num_partitions):
             c_proj_init[:, i + value_head, i*num_attnt_heads_per_partition: (i+1)*num_attnt_heads_per_partition] = 1.
         
@@ -224,14 +172,11 @@ class AttentionBackward(nn.Module):
 
         self.attnt_gates.initialize_weights (w, u, v, w_bias, u_bias, v_bias)
         
-        
-        #self.add_module('Attentionback_attention', self.attnt_module)
-        #self.add_module('Attentionback_gates', self.attnt_gates)
-        #self.add_module('Attentionback_Linearback', self.backward)
+       
         
     def forward(self, hidden_states, position_states, attention_mask, icl_mask=None):
         
-        #print ("*******", hidden_states[0, :3])
+        
         #add a mask to avoid attention on blank tokens!
         
         
@@ -259,11 +204,7 @@ class AttentionBackward(nn.Module):
                                                   normalization_mask=normalization_mask\
                                                  ) [0]
         
-        #print (attnt_output[0, 2+self.config.num_prefixes])
-        #if not self.config.backprop_through_attention:
-        #    end_dim = self.memory_index + 2*self.din
-        #    attnt_output[:, self.config.num_prefixes:, :self.din] += hidden_states[:, self.config.num_prefixes:, :self.din]
-        #else:
+        
         end_dim = self.memory_index + 3*self.din
             
         attnt_output[:, self.config.num_prefixes:, self.memory_index: end_dim] += hidden_states[:, self.config.num_prefixes:, self.memory_index: end_dim]
@@ -273,9 +214,7 @@ class AttentionBackward(nn.Module):
                                                  attnt_output, \
                                                  position_states\
                                                 ) 
-        
-        #print ("-------------------", gate_output[0, 5])
-        #linear_output = self.backward.forward(gate_output, position_states)        
+
         return gate_output
     
     
@@ -284,12 +223,12 @@ class AttentionBackward(nn.Module):
     
 
     
-#Implements descent w.r.t. the value matrix    
+#Implements descent w.r.t. the value matrix  
+#The module simply calls LinearDescent module on the current embeddings
 class AttentionDescent(nn.Module):
     def __init__ (self, config, din, num_attnt_heads, use_softmax, memory_index=-1, debug_zero=False, retain_nablay=False):
         super(AttentionDescent, self).__init__()
         self.linear = LinearDescent(config, din=din, dout=din, use_softmax=use_softmax, memory_index=memory_index+2*din, debug_zero=debug_zero) 
-        #self.add_module('Attentiondescent_Lineardescent', self.linear)
         
         
     def forward(self, hidden_states, position_states, attention_mask, icl_mask=None):   
@@ -297,8 +236,7 @@ class AttentionDescent(nn.Module):
     
     
     
-    #self, config, din, dout, use_softmax, debug_zero=False, retain_nablay=False, projection_matrix=None, memory_index=-1
-    #self, config, din, num_attnt_heads, use_softmax, retain_nablay=False, memory_index=-1
+#Combines Backward and Descent module, since Descent module uses the gradient from Backward pass.    
 class AttentionBackward_Descent(nn.Module):
     def __init__ (self, config, din, num_attnt_heads, use_softmax, memory_index=-1, debug_zero=False, projection_matrix=None, retain_nablay=False):
         super(AttentionBackward_Descent, self).__init__()
@@ -306,7 +244,6 @@ class AttentionBackward_Descent(nn.Module):
         self.config = config
         self.memory_index = memory_index
         self.din = din
-        #self, config, din, num_attnt_heads, use_softmax, retain_nablay=False, memory_index=-1
         self.attention_back = AttentionBackward(config, \
                                                  din=din, \
                                                  num_attnt_heads=num_attnt_heads, \
@@ -315,7 +252,6 @@ class AttentionBackward_Descent(nn.Module):
                                                  retain_nablay=retain_nablay,\
                                                 )
         
-        #self.add_module('Attention_backward', self.attention_back)
         
         self.linearback_descent = Linear_Descent_Backward(config, \
                                                           din=din, \
@@ -326,7 +262,6 @@ class AttentionBackward_Descent(nn.Module):
                                                           projection_matrix=projection_matrix, \
                                                           retain_nablay=retain_nablay, \
                                                          ) 
-        #self.add_module('Attention_Linearback_descent', self.linearback_descent)
         
         
     def forward(self, hidden_states, position_states, attention_mask, icl_mask=None):   
@@ -335,15 +270,8 @@ class AttentionBackward_Descent(nn.Module):
         else:
             attention_backout = hidden_states
             
-        #if activation_memory is not None:
-        #    mem_replace_dim = activation_memory.shape[-1]
-        #    mem_index = self.memory_index + self.din
-        #    num_prefixes = self.config.num_prefixes
-        #    attention_backout[:, num_prefixes:, mem_index: mem_index + mem_replace_dim] += (activation_memory - attention_backout[:, num_prefixes:, mem_index: mem_index + mem_replace_dim])    
+         
         attention_descentout = self.linearback_descent(attention_backout, position_states, attention_mask)
-        
-        #if not self.config.backprop_through_attention:
-        #    attention_descentout[:, self.config.num_prefixes:] = hidden_states[:, self.config.num_prefixes:]
         
         
         return attention_descentout    

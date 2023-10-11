@@ -15,39 +15,35 @@ from ..linear import *
 
 
 
-#------------------------------------------------------------------#
-#embedding structure [ signal, memory, position ] 
-#I will introduce k prefixes to separate different sub-sequences
-#------------------------------------------------------------------#
 
 
+ 
+#The following module simulates the forward operation of a softmax self-attention in the Auxiliary model.
+#Output: A module that first computes Query, Key, Value using a single LinearForward module, followed by a softmax attention layer
 
-#------------------------------------------------------------------#
-#config contains the following important parameters: 
-#config.signal_start : Start Index of current signal embeddings (0 always)
-#config.signal_end : End Index of current signal
-#self.memory_index : Start index of memorized embeddings (from a previous layer)
-#config.memory_end : End Index of memorized embeddings (from a previous layer)
-#config.position_start : Start index of one-hot position embeddings
-#config.seq_length : Sequence length of the smaller model that we are trying to simulate
-#config.blank_identifier : Index containing Identifiers for blank token
-#config.num_prefixes : Number of prefixes to separate the sub-sequences
-#config.num_attention_heads : Number of attention heads
-#config.scale_embeddings : A scale to initialize different query, key matrices
-#config.inner_lr : Inner learning rate to simulate sgd  
-#------------------------------------------------------------------# 
-
-
-
-#------------------------------------------------------------------##------------------------------------------------------------------##------------------------------------------------------------------# 
- #Input: Number of attention heads in the smaller model, din denotes the embedding dimension through the attention module of small model whose forward pass we are trying to simulate
-#Output: 3 attention layers
+#All arguments
+#self, \
+#config, \                    #TinT config file
+#din, \                       #input dimension
+#num_attnt_heads, \           #number of attention heads in the Auxiliary's self-attention
+#use_softmax=False, \         #use_softmax=False, implying we use linear attention head 
+#projection_matrix=None, \    #projection_matrix to project the linear operation (not used in the current code)
+#separate_QK,\                #Unnecessary argument, to be removed 
+#memory_index=-1, \           #memory_index to store activations for the backward and descent pass!
 class AttentionForward (nn.Module):
-    def __init__ (self, config, din, num_attnt_heads, use_softmax, projection_matrix=None, separate_QK=False, memory_index=0):
+    def __init__ (self, \
+                  config, \
+                  din, \
+                  num_attnt_heads, \
+                  use_softmax=False, \
+                  projection_matrix=None, \
+                  separate_QK=False, \
+                  memory_index=0,\
+                 ):
         super(AttentionForward, self).__init__()
         
         assert use_softmax==False ,\
-            "Currently I only use linear attention in this module"
+            "Currently I only use linear attention for linear operations in this module"
         
         assert num_attnt_heads <= config.num_attention_heads,\
             "Number of attention heads should be at least the number of attention heads necessary to simulate"
@@ -59,18 +55,17 @@ class AttentionForward (nn.Module):
             if separate_QK: dout = 2*din
             else: dout = din    
 
-        self.linear = LinearForward(config, din=din, dout=dout, use_softmax=use_softmax, projection_matrix=projection_matrix, memory_index=-1)
+        self.linear = LinearForward(config, \
+                                    din=din, \
+                                    dout=dout, \
+                                    use_softmax=use_softmax, \
+                                    projection_matrix=projection_matrix, \
+                                    memory_index=-1,\
+                                   )
         
         self.key_linear = self.linear
-        #LinearForward(config, din=din, dout=dout, use_softmax=use_softmax, projection_matrix=projection_matrix, memory_index=-1)
         self.value_linear = self.linear
-        #LinearForward(config, din=din, dout=dout, use_softmax=use_softmax, projection_matrix=projection_matrix, memory_index=-1)
         
-        #if separate_QK:
-        #self.value_linear = LinearForward(config, din=din, dout=din, use_softmax=use_softmax, shift_top=2*din, memory_index=memory_index+2*din) 
-        #if not separate_QK:
-        #    self.key_linear = LinearForward(config, din=din, dout=din, use_softmax=use_softmax, shift_top=din, memory_index=memory_index+din)
-
 
         
         self.gates = Gates (config)
@@ -189,25 +184,16 @@ class AttentionForward (nn.Module):
 
         self.gates.initialize_weights (w, u, v, w_bias, u_bias, v_bias)
 
-        #self.add_module('Attentionforward_Linearforward', self.linear)
-        #self.add_module('Attentionforward_attention', self.attnt_module)
-        #self.add_module('Attentionforward_gates', self.gates)
         
-#Compute Q^{\top} K \sum_{j} a_{i, j} \nabla y_i^{\top} x_j x_j - Q^{\top} K  \nabla y_i^{\top} y_i y_i
-# + K^{\top} Q \sum_{j} a_{j, i} \nabla y_j^{\top} x_i x_j - K^{\top} Q \sum_{j} a_{j, i} \nabla y_j^{\top} y_j x_j
-# + \sum_{j} a_{j, i} \nabla y_j
+
        
     def forward(self, hidden_states, position_states, key_weights=None, value_weights=None, icl_mask=None):
         
         linear_output = self.linear.forward(hidden_states, position_states)
-        #if self.separate_QK:
-            #inp_hidden_states = hidden_states.clone()
-            #this is an in-place operation, hence I need to do clone
-            #inp_hidden_states[:, :self.config.num_prefixes] += ( value_weights - inp_hidden_states[:, :self.config.num_prefixes] )
+        
         
         if not self.separate_QK:
             inp_hidden_states = torch.cat( [key_weights, hidden_states[:, self.config.num_prefixes:] ], axis=1)            
-            #key_out = self.key_linear(inp_hidden_states, position_states)
             key_out = self.key_linear(inp_hidden_states, position_states)
             assert torch.sum(linear_output[:, self.config.num_prefixes:, self.din:]).item() < 1e-10,\
                    "Key portion not empty!"
@@ -216,7 +202,6 @@ class AttentionForward (nn.Module):
         
         
         inp_hidden_states = torch.cat( [value_weights, hidden_states[:, self.config.num_prefixes:] ], axis=1)            
-        #value_out = self.value_linear(inp_hidden_states, position_states)
         value_out = self.value_linear(inp_hidden_states, position_states)
         
         assert torch.sum(linear_output[:, self.config.num_prefixes:, 2*self.din:]).item() < 1e-10,\

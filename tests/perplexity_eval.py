@@ -14,7 +14,7 @@ parser = HfArgumentParser((ModelArguments, ConstructionArguments, DynamicArgumen
 model_args, construction_args, data_args, = parser.parse_args_into_dataclasses()
         
 
-tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path, cache_dir="../..")
+tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path, cache_dir=model_args.cache_dir)
 if 'gpt' in model_args.model_name_or_path:
     tokenizer.pad_token = tokenizer.eos_token
     pad_token_id=tokenizer.convert_tokens_to_ids(tokenizer.pad_token)    
